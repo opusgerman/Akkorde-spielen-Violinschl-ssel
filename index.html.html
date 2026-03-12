@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Akkorde Lesen</title>
+<style>
+  body { 
+    text-align: center; font-family: sans-serif; background: #f4f4f9; 
+    margin: 0; padding-top: 20px;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  
+  #game-container { 
+    position: relative; width: 700px; max-width: 95vw; margin: 0 auto; 
+    background: white; border: 2px solid #333; overflow: hidden; 
+    border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); 
+    display: flex; flex-direction: column;
+  }
+  
+  #status-board { 
+    position: absolute; top: 15px; left: 15px; right: 15px;
+    display: flex; justify-content: space-between; z-index: 5; 
+  }
+  .status-box {
+    font-size: 20px; font-weight: bold; color: #333; 
+    background: rgba(255,255,255,0.9); padding: 8px 15px; 
+    border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+
+  canvas { display: block; width: 100%; height: 280px; background: #fffdf9; transition: background 0.2s; }
+  
+  #keyboard { position: relative; height: 180px; border-top: 2px solid #333; background: #333; }
+  
+  .white-key { 
+    width: calc(100% / 8); 
+    height: 100%; display: inline-flex; flex-direction: column; justify-content: flex-end; align-items: center;
+    box-sizing: border-box; border: 1px solid #ccc; border-bottom: 4px solid #bbb;
+    background: white; float: left; border-radius: 0 0 5px 5px; padding-bottom: 15px;
+    font-weight: bold; font-size: 22px; color: #333; transition: background 0.05s; cursor: pointer;
+  }
+  
+  .black-key { 
+    width: 46px; height: 60%; background: linear-gradient(to bottom, #444, #111); 
+    position: absolute; z-index: 2; border-radius: 0 0 4px 4px;
+    box-shadow: 2px 2px 3px rgba(0,0,0,0.4); cursor: pointer;
+  }
+
+  .white-key.active { background: #e8e8e8; border-bottom: 1px solid #ccc; transform: translateY(3px); }
+  .white-key.found { background: #c8e6c9; border-color: #4caf50; } 
+  .black-key.active { background: #000; height: 58%; box-shadow: 1px 1px 1px rgba(0,0,0,0.5); }
+
+  .overlay { 
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+    background: rgba(0,0,0,0.85); color: white; 
+    display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; 
+  }
+  
+  .mode-btn { padding: 15px 20px; font-size: 20px; background: #4caf50; border: none; border-radius: 10px; font-weight: bold; margin: 10px; color: white; cursor: pointer; width: 250px; }
+  .mode-btn:active { transform: translateY(2px); }
+  .mode-btn.two-notes { background: #2196f3; }
+  .mode-btn.three-notes { background: #9c27b0; }
+  .mode-btn.mixed { background: #ff9800; }
+  .mode-btn.retry { background: #f44336; margin-top: 30px; }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  
+  <div id="start-screen" class="overlay">
+    <h2>🎼 Akkorde Spielen 🎼</h2>
+    <p>Spiele die passenden Tasten zum Akkord!</p>
+    <button class="mode-btn two-notes" onclick="startGame('two')">🎵 Zweiklänge</button>
+    <button class="mode-btn three-notes" onclick="startGame('three')">🎶 Dreiklänge</button>
+    <button class="mode-btn mixed" onclick="startGame('mixed')">🔀 Gemischt</button>
+  </div>
+
+  <div id="game-over-screen" class="overlay" style="display: none;">
+    <h1 style="color: #ff5252; font-size: 40px; margin-bottom: 10px;">Spiel vorbei!</h1>
+    <p style="font-size: 24px;">Punkte: <span id="final-score">0</span></p>
+    <button class="mode-btn retry" onclick="showMenu()">Zurück zum Menü</button>
+  </div>
+
+  <div id="status-board">
+    <div class="status-box">Punkte: <span id="score">0</span></div>
+    <div class="status-box" id="hearts-display">❤️❤️❤️❤️❤️</div>
+  </div>
+  
+  <canvas id="gameCanvas" width="700" height="280"></canvas>
+  
+  <div id="keyboard">
+    <div class="key white-key" data-note="C4">C</div>
+    <div class="key white-key" data-note="D4">D</div>
+    <div class="key white-key" data-note="E4">E</div>
+    <div class="key white-key" data-note="F4">F</div>
+    <div class="key white-key" data-note="G4">G</div>
+    <div class="key white-key" data-note="A4">A</div>
+    <div class="key white-key" data-note="H4">H</div>
+    <div class="key white-key" data-note="C5">C</div> 
+    
+    <div class="key black-key" style="left: 64px;" data-note="C#"></div>
+    <div class="key black-key" style="left: 152px;" data-note="D#"></div>
+    <div class="key black-key" style="left: 327px;" data-note="F#"></div>
+    <div class="key black-key" style="left: 414px;" data-note="G#"></div>
+    <div class="key black-key" style="left: 502px;" data-note="A#"></div>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreElement = document.getElementById('score');
+  const heartsDisplay = document.getElementById('hearts-display');
+
+  let score = 0;
+  let lives = 5;
+  let isPlaying = false;
+  let gameMode = 'two'; 
+  
+  let currentChordNotes = []; 
+  let foundNotes = [];        
+  
+  let audioCtx;
+
+  const notesData = {
+    'C4': { freq: 261.63, y: 205, ledger: 205 }, 
+    'D4': { freq: 293.66, y: 197.5 },            
+    'E4': { freq: 329.63, y: 190 },              
+    'F4': { freq: 349.23, y: 182.5 },            
+    'G4': { freq: 392.00, y: 175 },              
+    'A4': { freq: 440.00, y: 167.5 },            
+    'H4': { freq: 493.88, y: 160 },              
+    'C5': { freq: 523.25, y: 152.5 }             
+  };
+
+  const twoNoteChords = [
+    ['C4', 'D4'], ['D4', 'E4'], ['E4', 'F4'], ['F4', 'G4'], ['G4', 'A4'], ['A4', 'H4'], ['H4', 'C5'],
+    ['C4', 'E4'], ['D4', 'F4'], ['E4', 'G4'], ['F4', 'A4'], ['G4', 'H4'], ['A4', 'C5'],
+    ['C4', 'F4'], ['D4', 'G4'], ['E4', 'A4'], ['F4', 'H4'], ['G4', 'C5'],
+    ['C4', 'G4'], ['D4', 'A4'], ['E4', 'H4'], ['F4', 'C5'],
+    ['C4', 'A4'], ['D4', 'H4'], ['E4', 'C5'],
+    ['C4', 'H4'], ['D4', 'C5'],
+    ['C4', 'C5']
+  ];
+
+  const threeNoteChords = [
+    ['C4', 'E4', 'G4'], ['D4', 'F4', 'A4'], ['E4', 'G4', 'H4'], ['F4', 'A4', 'C5'],
+    ['C4', 'F4', 'A4'], ['D4', 'G4', 'H4'], ['E4', 'A4', 'C5'],
+    ['C4', 'E4', 'A4'], ['D4', 'F4', 'H4'], ['E4', 'G4', 'C5'],
+    ['C4', 'F4', 'G4'], ['D4', 'G4', 'A4']
+  ];
+
+  function playSound(freq) {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    oscillator.start();
+    gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+    oscillator.stop(audioCtx.currentTime + 1.2);
+  }
+
+  function playChord(notesArray) {
+    if (!audioCtx) return;
+    notesArray.forEach(noteName => {
+      playSound(notesData[noteName].freq);
+    });
+  }
+
+  function updateHeartsUI() {
+    let heartsHTML = '';
+    for(let i=0; i<5; i++) {
+      heartsHTML += (i < lives) ? '❤️' : '🖤';
+    }
+    heartsDisplay.innerText = heartsHTML;
+  }
+
+  function generateQuestion() {
+    let pool = [];
+    if (gameMode === 'two') pool = twoNoteChords;
+    else if (gameMode === 'three') pool = threeNoteChords;
+    else pool = Math.random() > 0.5 ? twoNoteChords : threeNoteChords;
+
+    currentChordNotes = pool[Math.floor(Math.random() * pool.length)];
+    foundNotes = []; 
+    
+    document.querySelectorAll('.key').forEach(k => k.classList.remove('found'));
+
+    drawCanvas();
+  }
+
+  function drawCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 2;
+    for(let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.moveTo(40, 130 + (i * 15)); 
+      ctx.lineTo(660, 130 + (i * 15));
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#333';
+    ctx.font = '80px serif';
+    ctx.fillText('𝄞', 45, 180); 
+
+    const centerX = canvas.width / 2;
+
+    let sortedNotes = [...currentChordNotes].sort((a, b) => notesData[b].y - notesData[a].y);
+    let previousY = -999;
+
+    sortedNotes.forEach(noteName => {
+      let data = notesData[noteName];
+      let y = data.y;
+      let currentX = centerX;
+
+      if (Math.abs(previousY - y) < 10) {
+        currentX = centerX + 18;
+        previousY = -999; 
+      } else {
+        previousY = y;
+      }
+
+      let isFound = foundNotes.includes(noteName);
+      ctx.fillStyle = isFound ? '#4caf50' : '#333';
+      ctx.strokeStyle = isFound ? '#4caf50' : '#333';
+
+      if(data.ledger) {
+        ctx.beginPath();
+        ctx.moveTo(centerX - 22, data.ledger);
+        ctx.lineTo(currentX + 22, data.ledger);
+        ctx.stroke();
+      }
+
+      ctx.beginPath();
+      ctx.ellipse(currentX, y, 11, 7, -0.2, 0, Math.PI * 2);
+      ctx.fill(); 
+      ctx.lineWidth = 2; 
+      ctx.stroke();
+    });
+  }
+
+  function checkNote(noteName, keyElement) {
+    if (!isPlaying) return;
+    
+    if (notesData[noteName]) playSound(notesData[noteName].freq);
+    else playSound(261.63); 
+
+    if (currentChordNotes.includes(noteName) && !foundNotes.includes(noteName)) {
+      foundNotes.push(noteName);
+      keyElement.classList.add('found'); 
+      drawCanvas(); 
+
+      if (foundNotes.length === currentChordNotes.length) {
+        score += 10;
+        scoreElement.innerText = score;
+        
+        canvas.style.background = '#e8f5e9'; 
+        playChord(currentChordNotes);
+
+        setTimeout(() => {
+          canvas.style.background = '#fffdf9'; 
+          if(isPlaying) generateQuestion(); 
+        }, 500);
+      }
+    } 
+    else if (!currentChordNotes.includes(noteName)) {
+      lives--;
+      updateHeartsUI();
+      
+      canvas.style.background = '#ffcdd2'; 
+      setTimeout(() => {
+        canvas.style.background = '#fffdf9';
+        if (lives <= 0) gameOver();
+      }, 300);
+    }
+  }
+
+  function gameOver() {
+    isPlaying = false;
+    document.getElementById('final-score').innerText = score;
+    document.getElementById('game-over-screen').style.display = 'flex';
+  }
+
+  window.showMenu = function() {
+    document.getElementById('game-over-screen').style.display = 'none';
+    document.getElementById('start-screen').style.display = 'flex';
+  };
+
+  window.startGame = function(mode) {
+    gameMode = mode;
+    score = 0;
+    lives = 5;
+    scoreElement.innerText = score;
+    updateHeartsUI();
+    
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('game-over-screen').style.display = 'none';
+    
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    
+    isPlaying = true;
+    generateQuestion(); 
+  };
+
+  document.querySelectorAll('.key').forEach(key => {
+    key.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); 
+      key.classList.add('active');
+      checkNote(key.dataset.note, key);
+    });
+
+    key.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      key.classList.remove('active');
+    });
+
+    key.addEventListener('pointerleave', (e) => {
+      key.classList.remove('active');
+    });
+  });
+</script>
+
+</body>
+</html>
